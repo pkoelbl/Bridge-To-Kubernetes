@@ -14,12 +14,6 @@
 # Variable 'TeamName' was defined in the Variables tab
 # Variable 'TelemetryType' was defined in the Variables tab
 parameters:
-  - name: SignTypeToUse
-    displayName: Signing Type
-    default: 'test'
-    values:
-    - test
-    - real
   - name: TelemetryType
     displayName: Telemetry Type so that correct application insights key is selected
     default: 'TELEMETRY_DEVELOPMENT'
@@ -43,11 +37,8 @@ variables:
 - name: RunTests
   value: True
 
-trigger:
-  branches:
-    include:
-    - refs/heads/main
-  batch: True
+# A pipeline with no CI trigger since this is a signed build needs to be triggered manually.
+trigger: none
 name: $(date:yyyyMMdd)$(rev:.r)
 resources:
   repositories:
@@ -85,20 +76,20 @@ jobs:
         $branchName = $env:BUILD_SOURCEBRANCH
 
         if ($branchName -eq "refs/heads/main") {
-            Write-Host "##vso[task.setvariable variable=TelemetryType]"{{ parameters.TelemetryType }}
-            Write-Host "Done setting the sign type and telemetry key instance for main branch"
+            Write-Host "##vso[task.setvariable variable=TelemetryType;]${{ parameters.TelemetryType }}"
+            Write-Host "Done setting telemetry key instance as ${{ parameters.TelemetryType }} for main branch"
+        } else {
+            Write-Host "##vso[task.setvariable variable=TelemetryType;]${{ parameters.TelemetryType }}"
+            Write-Host "Done setting telemetry key instance as ${{ parameters.TelemetryType }} for other branch"
         }
 
-
-        Write-Host "Disabling NuGet package signing because it doesn't work, and we don't publish public NuGet packages"
-
-        Write-Host "##vso[task.setvariable variable=MicroBuild_NuPkgSigningEnabled]false"
+        Write-Host "##vso[task.setvariable variable=MicroBuild_NuPkgSigningEnabled;]true"
   - task: MicroBuildSigningPlugin@3
     name: ''
     displayName: Install Signing Plugin
     enabled: True
     inputs:
-      signType: ${{ parameters.SignTypeToUse }}
+      signType: real
       zipSources: false
   - task: MicroBuildLocalizationPlugin@3
     displayName: 'Install Localization Plugin'
@@ -272,7 +263,7 @@ jobs:
     enabled: True
     inputs:
       solution: src/client.signproj
-      msbuildArgs: /t:SignFiles /p:SignType=${{ parameters.SignTypeToUse }}
+      msbuildArgs: /t:SignFiles /p:SignType=real
       configuration: '${{ parameters.BuildConfiguration }} '
   - task: CopyFiles@2
     displayName: Collect files for .zip (Windows)
@@ -473,7 +464,7 @@ jobs:
       packagesToPack: src/dsc/dsc.csproj
       packDirectory: '$(Build.ArtifactStagingDirectory)/nuget'
       nobuild: true
-      buildProperties: 'NuspecFile=bin\${{ parameters.BuildConfiguration }}\net6.0\win-x64\publish\dsc.nuspec'
+      buildProperties: 'Configuration=${{ parameters.BuildConfiguration }};NuspecFile=bin\${{ parameters.BuildConfiguration }}\net6.0\win-x64\publish\dsc.nuspec'
   - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
     displayName: 'Manifest Generator for nuget'
     inputs:
@@ -483,6 +474,10 @@ jobs:
     inputs:
       PathtoPublish: '$(Build.ArtifactStagingDirectory)/nuget'
       ArtifactName: nuget
+  - task: CodeSign@1
+    displayName: Validate Signatures nuget
+    inputs:
+      Path: '$(Build.ArtifactStagingDirectory)/nuget'
   - task: CopyFiles@2
     displayName: Collect Build Symbols - dsc
     enabled: True
@@ -527,6 +522,22 @@ jobs:
     enabled: True
     inputs:
       tags: 'BuildConfiguration: ${{ parameters.BuildConfiguration }}'
+
+  - task: SdtReport@2
+    inputs:
+      GdnExportAllTools: true
+      GdnExportHtmlFile: true
+  - task: PublishSecurityAnalysisLogs@3
+    inputs:
+      ArtifactName: 'CodeAnalysisLogs'
+      ArtifactType: 'Container'
+      AllTools: true
+      ToolLogsNotFoundAction: 'Standard'
+  - task: PostAnalysis@2
+    inputs:
+      GdnBreakAllTools: true
+      GdnBreakFast: true
+
 - job: Phase_2
   displayName: Run NON self-contained build (binaries V2, where the binaries are downloaded in parallel)
   timeoutInMinutes: 120
@@ -550,18 +561,19 @@ jobs:
         $branchName = $env:BUILD_SOURCEBRANCH
 
         if ($branchName -eq "refs/heads/main") {
-            Write-Host "##vso[task.setvariable variable=TelemetryType]"{{ parameters.TelemetryType }}
-            Write-Host "Done setting the sign type and telemetry key instance for staging branch"
+            Write-Host "##vso[task.setvariable variable=TelemetryType;]${{ parameters.TelemetryType }}"
+            Write-Host "Done setting telemetry key instance as ${{ parameters.TelemetryType }} for main branch"
+        } else {
+            Write-Host "##vso[task.setvariable variable=TelemetryType;]${{ parameters.TelemetryType }}"
+            Write-Host "Done setting telemetry key instance as ${{ parameters.TelemetryType }} for other branch"
         }
 
-        Write-Host "Disabling NuGet package signing because it doesn't work, and we don't publish public NuGet packages"
-
-        Write-Host "##vso[task.setvariable variable=MicroBuild_NuPkgSigningEnabled]false"
+        Write-Host "##vso[task.setvariable variable=MicroBuild_NuPkgSigningEnabled;]true"
   - task: MicroBuildSigningPlugin@3
     displayName: Install Signing Plugin
     enabled: True
     inputs:
-      signType: ${{ parameters.SignTypeToUse }}
+      signType: real
       zipSources: false
   - task: MicroBuildLocalizationPlugin@3
     displayName: Install Localization Plugin
@@ -669,7 +681,7 @@ jobs:
     enabled: True
     inputs:
       solution: src/client.signproj
-      msbuildArgs: /t:SignFiles /p:SignType=${{ parameters.SignTypeToUse }}
+      msbuildArgs: /t:SignFiles /p:SignType=real
       configuration: '${{ parameters.BuildConfiguration }} '
   - task: CopyFiles@2
     displayName: Collect files for .zip (Windows)
@@ -710,6 +722,10 @@ jobs:
 
         !**/zh-Hant/*
       TargetFolder: $(Agent.TempDirectory)/zip/win
+  - task: CodeSign@1
+    displayName: Validate Signatures
+    inputs:
+      Path: '$(Agent.TempDirectory)/zip/win'
   - task: CopyFiles@2
     displayName: Collect files for .zip (OSX)
     inputs:
@@ -753,6 +769,10 @@ jobs:
 
         !**/zh-Hant/*
       TargetFolder: $(Agent.TempDirectory)/zip/osx
+  - task: CodeSign@1
+    displayName: Validate Signatures OSX
+    inputs:
+      Path: '$(Agent.TempDirectory)/zip/osx'
   - task: CopyFiles@2
     displayName: Collect files for .zip (Linux)
     inputs:
@@ -796,6 +816,10 @@ jobs:
 
         !**/zh-Hant/*
       TargetFolder: $(Agent.TempDirectory)/zip/linux
+  - task: CodeSign@1
+    displayName: Validate Signatures linux
+    inputs:
+      Path: '$(Agent.TempDirectory)/zip/linux'
   - task: ArchiveFiles@2
     displayName: Create .zip file (Windows)
     inputs:
@@ -884,4 +908,19 @@ jobs:
     inputs:
       PathtoPublish: $(Build.ArtifactStagingDirectory)/zip
       ArtifactName: zipv2
+
+  - task: SdtReport@2
+    inputs:
+      GdnExportAllTools: true
+      GdnExportHtmlFile: true
+  - task: PublishSecurityAnalysisLogs@3
+    inputs:
+      ArtifactName: 'CodeAnalysisLogs'
+      ArtifactType: 'Container'
+      AllTools: true
+      ToolLogsNotFoundAction: 'Standard'
+  - task: PostAnalysis@2
+    inputs:
+      GdnBreakAllTools: true
+      GdnBreakFast: true
 ...

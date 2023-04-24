@@ -12,6 +12,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using k8s;
@@ -189,7 +190,7 @@ namespace Microsoft.BridgeToKubernetes.Common.Kubernetes
         /// </summary>
         public Task<HttpOperationResponse<V1DeploymentList>> WatchV1DeploymentAsync(string namespaceName, string deploymentName, int timeoutSeconds, CancellationToken cancellationToken)
         {
-            return ClientInvokeWrapperAsync(async () => await RestClient.AppsV1.ListNamespacedDeploymentWithHttpMessagesAsync(namespaceName, fieldSelector: $"metadata.name={deploymentName}", timeoutSeconds: timeoutSeconds, cancellationToken: cancellationToken), nameof(WatchV1DeploymentAsync), cancellationToken);
+            return ClientInvokeWrapperAsync(async () => await RestClient.AppsV1.ListNamespacedDeploymentWithHttpMessagesAsync(namespaceName, fieldSelector: $"metadata.name={deploymentName}", timeoutSeconds: timeoutSeconds, watch: true, cancellationToken: cancellationToken), nameof(WatchV1DeploymentAsync), cancellationToken);
         }
 
         /// <summary>
@@ -398,8 +399,21 @@ namespace Microsoft.BridgeToKubernetes.Common.Kubernetes
                 }
                 catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
                 {
-                    await RestClient.CoreV1.DeleteNamespacedServiceAsync(service.Metadata.Name, namespaceName);
+                    try 
+                    {
+                        _log.Warning("Initial CreateNamespacedServiceAsync failed, deleting namespace");
+                        await RestClient.CoreV1.DeleteNamespacedServiceAsync(service.Metadata.Name, namespaceName);
+                    }
+                    catch (JsonException ex)
+                    {
+                        // Delete service can through Json error when kubernetes server and client version are incompatible:
+                        // 1.21 and 1.22 DeleteService returns v1.Status (6.0 client sdk)
+                        // while in 1.23, DeleteService returns v1.Service (7.0+ client sdk)
+                        // more details on this issue: https://github.com/kubernetes-client/csharp/issues/824
+                        _log.Exception(ex);
+                    }
                     return await RestClient.CoreV1.CreateNamespacedServiceAsync(service, namespaceName, cancellationToken: cancellationToken);
+
                 }
             }, nameof(CreateOrReplaceV1ServiceAsync), cancellationToken);
         }
@@ -1001,9 +1015,7 @@ namespace Microsoft.BridgeToKubernetes.Common.Kubernetes
                     $"exec {podName} -c {containerName} -n {namespaceName} -- env",
                     onStdOut: outputHandler,
                     onStdErr: (string error) => errorSb.Append(error),
-                    cancellationToken,
-                    timeoutMs: (int)TimeSpan.FromSeconds(10).TotalMilliseconds);
-
+                    cancellationToken:cancellationToken);
                 if (exitCode == 0)
                 {
                     return true;
