@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
     <TieredCompilation>true</TieredCompilation>
     <AssemblyName>Microsoft.BridgeToKubernetes.RoutingManager</AssemblyName>
     <RootNamespace>Microsoft.BridgeToKubernetes.RoutingManager</RootNamespace>
@@ -20,19 +20,21 @@
     <HighEntropyVA>True</HighEntropyVA>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <NoWarn>8002</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\common\common.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Autofac" Version="6.4.0" />
     <PackageReference Include="Autofac.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="6.0.1" />
     <PackageReference Include="Microsoft.VisualStudioEng.MicroBuild.Core" Version="1.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="YamlDotNet" Version="12.0.0" />
+    <PackageReference Include="YamlDotNet" Version="13.1.0" />
   </ItemGroup>
 
   <ItemGroup>
