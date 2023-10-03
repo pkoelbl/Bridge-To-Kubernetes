@@ -14,6 +14,7 @@ COPY /src/common/ /src/common/
 COPY /build/ /build/
 ENV TelemetryType=${TelemetryType}
 ENV MINDARO_BUILD_NUMBER=${MindaroBuildNumber}
+ENV PATH="${PATH}:/sbin"
 
 RUN dotnet publish -c ${Configuration} -o /output devhostAgent.restorationjob.csproj
 
@@ -29,10 +30,8 @@ RUN tdnf install -y \
   procps \
   bind-utils
 
-COPY /build/setup-kubectl.sh .
-RUN chmod +x ./setup-kubectl.sh \
-    && ./setup-kubectl.sh \
-    && rm -f ./setup-kubectl.sh
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl"
+RUN install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 WORKDIR /app
 ENTRYPOINT ["/app/restorationjob"]
